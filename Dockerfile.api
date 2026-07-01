@@ -1,0 +1,27 @@
+FROM php:8.3-cli
+
+ARG COMPOSER_VERSION=2.8.12
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        git \
+        unzip \
+        libpq-dev \
+        libzip-dev \
+        zip \
+    && docker-php-ext-install pdo pdo_pgsql zip \
+    && php -r "copy('https://getcomposer.org/installer', '/tmp/composer-setup.php');" \
+    && php /tmp/composer-setup.php --version=${COMPOSER_VERSION} --install-dir=/usr/local/bin --filename=composer \
+    && rm -rf /tmp/composer-setup.php /var/lib/apt/lists/*
+
+WORKDIR /var/www/html
+
+COPY composer.json composer.json
+RUN composer install --no-interaction --prefer-dist --no-scripts --no-autoloader
+
+COPY . .
+RUN composer dump-autoload --optimize
+
+EXPOSE 8000
+
+CMD ["sh", "-c", "php artisan migrate --force && php artisan db:seed --force && php artisan serve --host=0.0.0.0 --port=8000"]

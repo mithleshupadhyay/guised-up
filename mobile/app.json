@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "Guised Up Feed",
+    "slug": "guised-up-feed",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#f8f5ef"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}

@@ -1,0 +1,453 @@
+# Technical Solution Document
+
+## Purpose
+
+This document defines the production design for the Guised Up Real Connections
+Feed. The goal is a personalized social feed that rewards authentic posts and
+real relationships instead of engagement farming.
+
+The implementation target for this submission is:
+
+- React Native feed screen
+- Laravel API with Sanctum token auth
+- PostgreSQL for relational data
+- pgvector as the vector database
+- Python embedding service with deterministic local embeddings
+- Raw SQL queries for operational analysis
+
+Important product rule:
+
+```text
+The feed must not rank posts by likes, shares, or comment volume.
+```
+
+Engagement can be logged because it helps understand relationship depth, but it
+must not become a popularity score.
+
+## Architecture
+
+```mermaid
+flowchart TB
+    Mobile["React Native Feed Screen"] --> API["Laravel API"]
+    API --> Auth["Laravel Sanctum"]
+    API --> Feed["Feed Ranking Service"]
+    API --> Search["Semantic Search Service"]
+    API --> Postgres[("PostgreSQL")]
+    Postgres --> Vector[("pgvector indexes")]
+    API --> EmbedHTTP["Embedding Client"]
+    EmbedHTTP --> PyEmbed["Python Embedding Service"]
+
+    Feed --> Authenticity["Authenticity Scorer"]
+    Feed --> Relationship["Relationship Depth Aggregates"]
+    Feed --> Similarity["Viewer Interest Vector"]
+    Feed --> Decay["Time Decay"]
+
+    Search --> QueryEmbedding["Query Embedding"]
+    QueryEmbedding --> Vector
+```
+
+Local runtime:
+
+```text
+mobile app
+-> Laravel API
+-> PostgreSQL + pgvector
+-> Python embedding service
+```
+
+Production direction:
+
+```text
+mobile app
+-> API gateway / WAF
+-> Laravel API containers
+-> managed PostgreSQL with pgvector
+-> embedding workers/service
+-> observability, queues, and rate limits
+```
+
+## Database Schema
+
+### users
+
+Laravel user table with Sanctum support.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | bigint primary key | Stable user identifier |
+| name | varchar | Display name |
+| username | varchar unique | Public handle |
+| email | varchar unique | Login identity |
+| password | varchar | Hashed password |
+| timestamps | timestamp | Created and updated time |
+
+Indexes:
+
+- `users_email_unique`
+- `users_username_unique`
+
+### personal_access_tokens
+
+Sanctum token table.
+
+Indexes:
+
+- unique token index
+- morph index on tokenable type and id
+
+### posts
+
+| Column | Type | Notes |
+|---|---|---|
+| id | bigint primary key | Post identifier |
+| author_id | foreign key | References users |
+| body | text | User post text |
+| image_url | varchar nullable | Optional image URL |
+| image_filter_score | decimal | Heuristic signal, higher means less filtered |
+| text_genuineness_score | decimal | Heuristic signal from copy style |
+| authenticity_score | decimal | Combined score used by feed |
+| metadata | jsonb nullable | Future image/model metadata |
+| timestamps | timestamp | Created and updated time |
+
+Indexes:
+
+- `(author_id, created_at)`
+- `(authenticity_score, created_at)`
+- `created_at`
+
+### post_embeddings
+
+| Column | Type | Notes |
+|---|---|---|
+| id | bigint primary key | Embedding row |
+| post_id | foreign key unique | One active embedding per post |
+| embedding | vector(384) | pgvector cosine search |
+| dimensions | smallint | Embedding dimension |
+| model | varchar | Model name/version |
+| version | integer | Embedding version |
+| timestamps | timestamp | Created and updated time |
+
+Indexes:
+
+- unique `post_id`
+- HNSW index on `embedding vector_cosine_ops`
+
+### interactions
+
+| Column | Type | Notes |
+|---|---|---|
+| id | bigint primary key | Interaction event |
+| actor_id | foreign key | User who interacted |
+| post_id | foreign key | Target post |
+| target_author_id | foreign key | Denormalized post author |
+| type | varchar | `view`, `reply`, or `reaction` |
+| weight | decimal | Relationship-depth weight |
+| metadata | jsonb nullable | Client or event metadata |
+| timestamps | timestamp | Created and updated time |
+
+Indexes:
+
+- `(actor_id, target_author_id, created_at)`
+- `(post_id, type, created_at)`
+- `(actor_id, created_at)`
+
+## Vector DB Decision
+
+I chose pgvector for this take-home.
+
+Reasons:
+
+- It keeps SQL data and vector data in one reproducible database.
+- Migrations can create the extension, vector columns, and HNSW index.
+- It avoids needing Pinecone, Weaviate, or Qdrant accounts during review.
+- It is good enough for this feature size and easy to move behind a repository
+  layer later.
+
+Production trade-off:
+
+- pgvector is a strong default while the product is early.
+- If feed/search traffic grows independently from transactional writes, the
+  vector search path can move to Qdrant or Pinecone without changing API
+  contracts.
+
+## Embeddings
+
+The API calls a Python embedding service:
+
+```text
+POST /v1/embed
+{
+  "texts": ["funny travel stories from last week"],
+  "dimensions": 384
+}
+```
+
+The service currently uses deterministic hash embeddings. This is intentional
+for the assignment because it makes the repo run without API credits and keeps
+tests stable.
+
+The embedding service is internal to the backend. Mobile clients never call it
+directly. Laravel sends `X-Embedding-Service-Token` for service-to-service
+authentication, while end-user authentication stays on the Laravel API via
+Sanctum.
+
+Production swap:
+
+- Replace the hash embedder with `sentence-transformers/all-MiniLM-L6-v2` for a
+  local open model, or with OpenAI/Gemini embeddings behind the same HTTP
+  contract.
+- Store `model`, `dimensions`, and `version` with every vector so re-embedding
+  can happen safely.
+- Rebuild HNSW indexes after a major embedding model migration.
+
+## API Design
+
+All protected endpoints use:
+
+```text
+Authorization: Bearer <sanctum-token>
+```
+
+### POST /api/auth/login
+
+Request:
+
+```json
+{
+  "email": "mithlesh@example.com",
+  "password": "password"
+}
+```
+
+Response:
+
+```json
+{
+  "token": "plain-text-sanctum-token",
+  "token_type": "Bearer",
+  "user": {
+    "id": 1,
+    "name": "Mithlesh Upadhyay",
+    "username": "mithlesh"
+  }
+}
+```
+
+### POST /api/posts
+
+Request:
+
+```json
+{
+  "text": "Unfiltered walk through Old Delhi today. Got lost, found the best chai.",
+  "image_url": "https://example.com/chai.jpg"
+}
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "id": 10,
+    "text": "...",
+    "image_url": "...",
+    "authenticity_score": 0.82,
+    "author": {
+      "id": 1,
+      "name": "Mithlesh Upadhyay",
+      "username": "mithlesh"
+    },
+    "created_at": "2026-06-30T10:00:00Z"
+  }
+}
+```
+
+### GET /api/feed?page=1
+
+Response:
+
+```json
+{
+  "data": [
+    {
+      "id": 10,
+      "text": "...",
+      "author": {},
+      "authenticity_score": 0.82,
+      "relationship_score": 0.64,
+      "semantic_score": 0.71,
+      "time_decay_score": 0.94,
+      "feed_score": 0.77
+    }
+  ],
+  "meta": {
+    "current_page": 1,
+    "per_page": 20,
+    "total": 143,
+    "last_page": 8
+  }
+}
+```
+
+### GET /api/search?q={query}
+
+Response:
+
+```json
+{
+  "data": [
+    {
+      "id": 10,
+      "text": "...",
+      "semantic_score": 0.83
+    }
+  ]
+}
+```
+
+### POST /api/interactions
+
+Request:
+
+```json
+{
+  "post_id": 10,
+  "type": "reaction",
+  "metadata": {
+    "reaction": "heart"
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "id": 55,
+    "post_id": 10,
+    "type": "reaction",
+    "weight": 0.6
+  }
+}
+```
+
+## Feed Ranking Logic
+
+Plain English:
+
+1. Start with recent candidate posts from users other than the viewer.
+2. Score authenticity from text and image heuristics. Less polished and more
+   personal content scores higher.
+3. Score relationship depth from the viewer's genuine interactions with each
+   post author. Replies count more than reactions, reactions count more than
+   views.
+4. Build a viewer interest vector from posts the viewer interacted with
+   recently.
+5. Compare each candidate post vector with the viewer interest vector.
+6. Apply time decay so very old content falls down unless relationship and
+   semantic relevance are strong.
+7. Combine the signals with fixed weights.
+8. Return a paginated feed sorted by this score.
+
+Signal weights:
+
+| Signal | Weight |
+|---|---:|
+| Relationship depth | 0.35 |
+| Authenticity | 0.30 |
+| Semantic similarity | 0.25 |
+| Time decay | 0.10 |
+
+Pseudocode:
+
+```text
+viewer_vector = weighted_average(
+    embeddings of posts viewer interacted with in last 60 days,
+    weight = interaction_weight * recency_decay
+)
+
+relationship_score_by_author = aggregate interactions
+    where actor_id = viewer.id
+    group by target_author_id
+    normalize with log scale
+
+candidate_posts = posts created in last 30 days
+    excluding viewer's own posts
+    eager load author and embedding
+
+for each post in candidate_posts:
+    authenticity = post.authenticity_score
+    relationship = relationship_score_by_author[post.author_id] or 0
+    semantic = cosine_similarity(viewer_vector, post.embedding) or neutral 0.5
+    time_decay = exp(-age_hours / 72)
+
+    score =
+        0.35 * relationship +
+        0.30 * authenticity +
+        0.25 * semantic +
+        0.10 * time_decay
+
+sort by score desc, created_at desc
+paginate 20 per page
+```
+
+## Search Logic
+
+Search embeds the natural-language query and uses pgvector cosine distance:
+
+```sql
+ORDER BY post_embeddings.embedding <=> CAST(:query_embedding AS vector)
+LIMIT 10
+```
+
+This returns semantic matches instead of keyword matches. Time filters like
+"last week" are not fully parsed in this submission; the next production
+iteration would add query parsing for temporal constraints before vector search.
+
+## Authentication Strategy
+
+Laravel Sanctum is used for token-based API access.
+
+- Seeded users can call `/api/auth/login`.
+- The mobile app stores the returned token and sends it as a Bearer token.
+- The Python embedding service is not a public user API. It is called only by
+  Laravel over the Docker service network and protected with a shared service
+  token for local service-to-service authentication.
+- In production, token issuance should be rate-limited and protected with
+  device/session metadata.
+
+## Trade-Offs And Assumptions
+
+- Hash embeddings are used for reproducibility. The embedding service contract
+  is intentionally model-agnostic so this can be swapped quickly.
+- Feed ranking is synchronous for the take-home. In production, viewer interest
+  vectors and relationship aggregates should be materialized asynchronously.
+- Authenticity scoring is heuristic because image files are not uploaded in the
+  API, only image URLs. A production version would use image metadata and a
+  lightweight model to detect filters, beauty effects, screenshots, and stock
+  content.
+- The feed ranks a bounded recent candidate set in application code. For larger
+  scale, candidate generation should move into SQL/vector queries and ranking
+  should use precomputed features.
+- Interaction events are append-only. This gives auditability and supports
+  better ranking experiments later.
+
+## AI Agentic Tool Usage
+
+I used Codex as the agentic coding assistant for:
+
+- Reading and summarizing the take-home brief from the provided PDF/text.
+- Comparing the implementation style with my existing `agentic_rag` project.
+- Generating the Laravel, Python, React Native, SQL, and documentation files.
+- Checking consistency between API contracts, migrations, tests, and README.
+
+I made the architecture decisions explicitly:
+
+- pgvector over external vector DBs for reproducible review.
+- Python embedding service with hash fallback because API credits should not be
+  required.
+- Laravel Sanctum token auth because it is required by the brief.
+- Relationship/authenticity/semantic/time scoring because popularity ranking
+  would violate the product brief.

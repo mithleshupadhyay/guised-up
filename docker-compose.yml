@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-guised_up}
+      POSTGRES_USER: ${DB_USERNAME:-guised_up}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-guised_up}
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-guised_up} -d ${DB_DATABASE:-guised_up}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  embedding:
+    build:
+      context: ./embedding_service
+    environment:
+      EMBEDDING_MODEL_NAME: ${FEED_EMBEDDING_MODEL:-hash-embedding-v1}
+      EMBEDDING_DIMENSIONS: ${FEED_EMBEDDING_DIMENSIONS:-384}
+      EMBEDDING_SERVICE_TOKEN: ${FEED_EMBEDDING_SERVICE_TOKEN:-local-embedding-service-token}
+    ports:
+      - "127.0.0.1:${EMBEDDING_HOST_PORT:-18080}:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres
+      FEED_EMBEDDING_SERVICE_URL: http://embedding:8080
+    ports:
+      - "${API_HOST_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      embedding:
+        condition: service_healthy
+    volumes:
+      - .:/var/www/html
+      - api-vendor:/var/www/html/vendor
+
+volumes:
+  postgres-data:
+  api-vendor:
