@@ -170,7 +170,7 @@ curl -s -X POST http://localhost:8000/api/interactions \
 - Internal FastAPI embedding service
 - Service-to-service token protection for embeddings
 - Deterministic local embeddings for reproducible review
-- Optional OpenAI-compatible embedding provider for production
+- Optional OpenAI, Gemini, and Cohere embedding providers
 - Queue-backed post embedding generation
 - Cached viewer interest and relationship features
 - Rate-limited auth, read, and write routes
@@ -238,8 +238,13 @@ EXPO_PUBLIC_API_URL=http://localhost:8000/api
 | `FEED_REQUEST_LOGGING` | `true` | Log request start/completion with request IDs |
 | `FEED_EMBEDDING_DIMENSIONS` | `384` | Vector size stored in pgvector |
 | `FEED_EMBEDDING_MODEL` | `hash-embedding-v1` | Current embedding model name |
-| `EMBEDDING_PROVIDER` | `hash` | `hash` locally, `openai` when using provider embeddings |
+| `EMBEDDING_PROVIDER` | `hash` | `hash`, `openai`, `gemini`, or `cohere` |
 | `OPENAI_API_KEY` | empty | Required only when `EMBEDDING_PROVIDER=openai` |
+| `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI model used by the embedding service |
+| `GEMINI_API_KEY` | empty | Required only when `EMBEDDING_PROVIDER=gemini` |
+| `GEMINI_EMBEDDING_MODEL` | `gemini-embedding-001` | Gemini model used by the embedding service |
+| `COHERE_API_KEY` | empty | Required only when `EMBEDDING_PROVIDER=cohere` |
+| `COHERE_EMBEDDING_MODEL` | `embed-english-light-v3.0` | Cohere model used by the embedding service |
 | `EXPO_PUBLIC_API_URL` | `http://localhost:8000/api` | API URL used by Expo |
 | `EXPO_PUBLIC_AUTH_TOKEN` | empty | Optional token injected into Expo |
 
@@ -320,13 +325,51 @@ Reasons:
 - Migrations create the vector column and HNSW index.
 - The API contract can later move to another vector store if scale requires it.
 
-The embedding service currently uses deterministic hash embeddings. This keeps
+The embedding service defaults to deterministic hash embeddings. This keeps
 tests stable and avoids paid model credentials during review.
+
+Provider options:
+
+| Provider | Key Needed | Good For |
+|----------|------------|----------|
+| `hash` | No | Local review, deterministic tests, no external dependency |
+| `gemini` | `GEMINI_API_KEY` | Free-tier testing with real semantic embeddings |
+| `cohere` | `COHERE_API_KEY` | Free/trial testing with a 384-dimensional light model |
+| `openai` | `OPENAI_API_KEY` | Production-grade hosted embeddings |
+
+Groq is not used for this vector path because Groq's public API is focused on
+chat/responses inference, not a standard embedding endpoint. It can still be
+useful later for LLM features, but feed ranking needs text-to-vector embeddings.
+
+Example Gemini configuration:
+
+```env
+EMBEDDING_PROVIDER=gemini
+FEED_EMBEDDING_MODEL=gemini-embedding-001
+GEMINI_API_KEY=your-gemini-key
+GEMINI_EMBEDDING_MODEL=gemini-embedding-001
+```
+
+Example Cohere configuration:
+
+```env
+EMBEDDING_PROVIDER=cohere
+FEED_EMBEDDING_MODEL=embed-english-light-v3.0
+COHERE_API_KEY=your-cohere-key
+COHERE_EMBEDDING_MODEL=embed-english-light-v3.0
+```
+
+After changing the provider, rebuild only the embedding container:
+
+```bash
+docker compose up -d --build embedding
+```
 
 Production upgrade path:
 
-- Replace the hash embedder behind `/v1/embed`.
-- Use `sentence-transformers`, OpenAI, Gemini, Voyage, Cohere, or another model.
+- Use `gemini`, `cohere`, or `openai` behind the same `/v1/embed` contract.
+- Use `sentence-transformers` or Hugging Face later if a fully local/open model
+  is preferred.
 - Keep storing `model`, `dimensions`, and `version` with every vector.
 - Re-embed old content asynchronously during model migrations.
 

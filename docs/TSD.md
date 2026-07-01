@@ -229,21 +229,53 @@ Local debug docs:
 http://localhost:18080/docs
 ```
 
-The service currently uses deterministic hash embeddings. This is intentional
-for the assignment because it makes the repo run without API credits and keeps
-tests stable.
+The service defaults to deterministic hash embeddings. This is intentional for
+the assignment because it makes the repo run without API credits and keeps tests
+stable.
 
-For production-like provider embeddings, the service can be switched to an
-OpenAI-compatible endpoint:
+The same `/v1/embed` contract also supports hosted embedding providers:
+
+| Provider | Required Key | Notes |
+|----------|--------------|-------|
+| `hash` | None | Default deterministic local provider for review |
+| `gemini` | `GEMINI_API_KEY` | Good free-tier option for realistic semantic vectors |
+| `cohere` | `COHERE_API_KEY` | Good trial/free option; `embed-english-light-v3.0` is 384-dimensional |
+| `openai` | `OPENAI_API_KEY` | Hosted production-grade embedding provider |
+
+Gemini example:
+
+```env
+EMBEDDING_PROVIDER=gemini
+FEED_EMBEDDING_MODEL=gemini-embedding-001
+GEMINI_API_KEY=...
+GEMINI_EMBEDDING_MODEL=gemini-embedding-001
+```
+
+Cohere example:
+
+```env
+EMBEDDING_PROVIDER=cohere
+FEED_EMBEDDING_MODEL=embed-english-light-v3.0
+COHERE_API_KEY=...
+COHERE_EMBEDDING_MODEL=embed-english-light-v3.0
+```
+
+OpenAI example:
 
 ```env
 EMBEDDING_PROVIDER=openai
+FEED_EMBEDDING_MODEL=text-embedding-3-small
 OPENAI_API_KEY=...
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 ```
 
 The default remains `EMBEDDING_PROVIDER=hash` so review does not require paid
 credentials.
+
+Groq is not used for embeddings in this submission. Groq's public API is useful
+for fast chat/responses inference, but feed ranking needs a text-to-vector
+embedding endpoint. This project keeps Groq out of the embedding path to avoid
+pretending that a chat model is a vector model.
 
 The embedding service is internal to the backend. Mobile clients never call it
 directly. Laravel sends `X-Embedding-Service-Token` for service-to-service
@@ -263,9 +295,8 @@ container runtime does not depend on a host Poetry environment.
 
 Production swap:
 
-- Replace the hash embedder with `sentence-transformers/all-MiniLM-L6-v2` for a
-  local open model, or with OpenAI/Gemini embeddings behind the same HTTP
-  contract.
+- Use Gemini, Cohere, OpenAI, or a local `sentence-transformers/all-MiniLM-L6-v2`
+  model behind the same HTTP contract.
 - Store `model`, `dimensions`, and `version` with every vector so re-embedding
   can happen safely.
 - Rebuild HNSW indexes after a major embedding model migration.
@@ -613,8 +644,8 @@ EXPO_PUBLIC_API_URL=http://localhost:8000/api EXPO_PUBLIC_AUTH_TOKEN="$TOKEN" np
 ## Trade-Offs And Assumptions
 
 - Hash embeddings are used for reproducibility. The embedding service contract
-  is intentionally model-agnostic so this can be switched to an OpenAI-compatible
-  provider by environment variable.
+  is intentionally model-agnostic so this can be switched to OpenAI, Gemini,
+  Cohere, or another provider by environment variable.
 - Post embedding generation runs through Laravel jobs. The local default queue
   is `sync` for reviewer simplicity; production should run database/Redis queue
   workers separately.

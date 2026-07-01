@@ -1,5 +1,5 @@
-import json
 import hmac
+import json
 import math
 import os
 import re
@@ -17,6 +17,14 @@ MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "hash-embedding-v1")
 OPENAI_EMBEDDING_ENDPOINT = os.getenv(
     "OPENAI_EMBEDDING_ENDPOINT",
     "https://api.openai.com/v1/embeddings",
+)
+GEMINI_EMBEDDING_ENDPOINT = os.getenv(
+    "GEMINI_EMBEDDING_ENDPOINT",
+    "https://generativelanguage.googleapis.com/v1beta/models/{model}:batchEmbedContents",
+)
+COHERE_EMBEDDING_ENDPOINT = os.getenv(
+    "COHERE_EMBEDDING_ENDPOINT",
+    "https://api.cohere.com/v2/embed",
 )
 TOKEN_RE = re.compile(r"[^a-z0-9]+")
 
@@ -69,6 +77,21 @@ def embedding_provider() -> str:
     return os.getenv("EMBEDDING_PROVIDER", "hash").strip().lower()
 
 
+def selected_model_name() -> str:
+    provider = embedding_provider()
+
+    if provider == "openai":
+        return os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+
+    if provider == "gemini":
+        return os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
+
+    if provider == "cohere":
+        return os.getenv("COHERE_EMBEDDING_MODEL", "embed-english-light-v3.0")
+
+    return MODEL_NAME
+
+
 def hash_embed(text: str, dimensions: int) -> list[float]:
     tokens = [token for token in TOKEN_RE.split(text.lower()) if token] or ["empty"]
     vector = [0.0] * dimensions
@@ -84,34 +107,22 @@ def hash_embed(text: str, dimensions: int) -> list[float]:
     return normalize(vector)
 
 
-def openai_embed(texts: list[str], dimensions: int) -> list[list[float]]:
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
-
-    if not api_key:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OPENAI_API_KEY is required when EMBEDDING_PROVIDER=openai.",
-        )
-
-    payload = {
-        "input": texts,
-        "model": os.getenv("OPENAI_EMBEDDING_MODEL", MODEL_NAME),
-        "dimensions": dimensions,
-    }
+def post_json(
+    url: str,
+    payload: dict,
+    headers: dict[str, str],
+    timeout_seconds: float,
+) -> dict:
     request = urllib.request.Request(
-        OPENAI_EMBEDDING_ENDPOINT,
+        url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
+        headers={"Content-Type": "application/json", **headers},
         method="POST",
     )
 
     try:
-        timeout = float(os.getenv("OPENAI_EMBEDDING_TIMEOUT_SECONDS", "10"))
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            body = json.loads(response.read().decode("utf-8"))
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exception:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -123,15 +134,132 @@ def openai_embed(texts: list[str], dimensions: int) -> list[list[float]]:
             detail="Embedding provider request failed.",
         ) from exception
 
-    vectors = [item.get("embedding") for item in body.get("data", [])]
 
-    if len(vectors) != len(texts) or not all(isinstance(vector, list) for vector in vectors):
+def validate_provider_vectors(
+    provider_name: str,
+    vectors: list | None,
+    expected_count: int,
+    expected_dimensions: int,
+) -> list[list[float]]:
+    if (
+        vectors is None
+        or len(vectors) != expected_count
+        or not all(isinstance(vector, list) for vector in vectors)
+    ):
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Embedding provider returned an invalid response.",
+            detail=f"{provider_name} embedding provider returned an invalid response.",
         )
 
-    return [normalize([float(value) for value in vector]) for vector in vectors]
+    normalized_vectors: list[list[float]] = []
+
+    try:
+        for vector in vectors:
+            if len(vector) != expected_dimensions:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=(
+                        f"{provider_name} embedding provider returned "
+                        f"{len(vector)} dimensions; expected {expected_dimensions}."
+                    ),
+                )
+
+            normalized_vectors.append(normalize([float(value) for value in vector]))
+
+        return normalized_vectors
+    except (TypeError, ValueError) as exception:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"{provider_name} embedding provider returned non-numeric values.",
+        ) from exception
+
+
+def openai_embed(texts: list[str], dimensions: int) -> list[list[float]]:
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OPENAI_API_KEY is required when EMBEDDING_PROVIDER=openai.",
+        )
+
+    payload = {
+        "input": texts,
+        "model": selected_model_name(),
+        "dimensions": dimensions,
+    }
+    body = post_json(
+        OPENAI_EMBEDDING_ENDPOINT,
+        payload,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+        },
+        timeout_seconds=float(os.getenv("OPENAI_EMBEDDING_TIMEOUT_SECONDS", "10")),
+    )
+
+    vectors = [item.get("embedding") for item in body.get("data", [])]
+
+    return validate_provider_vectors("OpenAI", vectors, len(texts), dimensions)
+
+
+def gemini_embed(texts: list[str], dimensions: int) -> list[list[float]]:
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="GEMINI_API_KEY is required when EMBEDDING_PROVIDER=gemini.",
+        )
+
+    model = selected_model_name()
+    model_resource = model if model.startswith("models/") else f"models/{model}"
+    payload = {
+        "requests": [
+            {
+                "model": model_resource,
+                "content": {"parts": [{"text": text}]},
+                "outputDimensionality": dimensions,
+                "taskType": os.getenv("GEMINI_EMBEDDING_TASK_TYPE", "RETRIEVAL_DOCUMENT"),
+            }
+            for text in texts
+        ],
+    }
+    body = post_json(
+        GEMINI_EMBEDDING_ENDPOINT.format(model=model_resource.removeprefix("models/")),
+        payload,
+        headers={"x-goog-api-key": api_key},
+        timeout_seconds=float(os.getenv("GEMINI_EMBEDDING_TIMEOUT_SECONDS", "10")),
+    )
+    vectors = [item.get("values") for item in body.get("embeddings", [])]
+
+    return validate_provider_vectors("Gemini", vectors, len(texts), dimensions)
+
+
+def cohere_embed(texts: list[str], dimensions: int) -> list[list[float]]:
+    api_key = os.getenv("COHERE_API_KEY", "").strip()
+
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="COHERE_API_KEY is required when EMBEDDING_PROVIDER=cohere.",
+        )
+
+    payload = {
+        "texts": texts,
+        "model": selected_model_name(),
+        "input_type": os.getenv("COHERE_EMBEDDING_INPUT_TYPE", "search_document"),
+        "embedding_types": ["float"],
+        "truncate": os.getenv("COHERE_EMBEDDING_TRUNCATE", "END"),
+    }
+    body = post_json(
+        COHERE_EMBEDDING_ENDPOINT,
+        payload,
+        headers={"Authorization": f"Bearer {api_key}"},
+        timeout_seconds=float(os.getenv("COHERE_EMBEDDING_TIMEOUT_SECONDS", "10")),
+    )
+    vectors = body.get("embeddings", {}).get("float")
+
+    return validate_provider_vectors("Cohere", vectors, len(texts), dimensions)
 
 
 def embed_texts(texts: list[str], dimensions: int) -> list[list[float]]:
@@ -143,6 +271,12 @@ def embed_texts(texts: list[str], dimensions: int) -> list[list[float]]:
     if provider == "openai":
         return openai_embed(texts, dimensions)
 
+    if provider == "gemini":
+        return gemini_embed(texts, dimensions)
+
+    if provider == "cohere":
+        return cohere_embed(texts, dimensions)
+
     raise HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         detail=f"Unsupported embedding provider: {provider}.",
@@ -151,7 +285,7 @@ def embed_texts(texts: list[str], dimensions: int) -> list[list[float]]:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "model": MODEL_NAME, "provider": embedding_provider()}
+    return {"status": "ok", "model": selected_model_name(), "provider": embedding_provider()}
 
 
 @app.post("/v1/embed")
@@ -170,7 +304,7 @@ def embed(
     ]
 
     return EmbedResponse(
-        model=MODEL_NAME,
+        model=selected_model_name(),
         dimensions=request.dimensions,
         embeddings=embeddings,
     )

@@ -1,6 +1,9 @@
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from embedding.main import app, hash_embed
+import embedding.main as embedding_module
+from embedding.main import app, gemini_embed, hash_embed, validate_provider_vectors
 
 
 def test_hash_embed_is_deterministic_and_normalized() -> None:
@@ -56,6 +59,18 @@ def test_health_reports_selected_provider(monkeypatch) -> None:
     assert response.json()["provider"] == "hash"
 
 
+def test_health_reports_provider_model(monkeypatch) -> None:
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
+    client = TestClient(app)
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["provider"] == "gemini"
+    assert response.json()["model"] == "gemini-embedding-001"
+
+
 def test_embed_endpoint_rejects_unsupported_provider(monkeypatch) -> None:
     monkeypatch.setenv("EMBEDDING_PROVIDER", "unknown")
     client = TestClient(app)
@@ -66,3 +81,63 @@ def test_embed_endpoint_rejects_unsupported_provider(monkeypatch) -> None:
     )
 
     assert response.status_code == 503
+
+
+def test_gemini_provider_requires_api_key(monkeypatch) -> None:
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "gemini")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/embed",
+        json={"texts": ["messy honest travel story"], "dimensions": 16},
+    )
+
+    assert response.status_code == 503
+    assert "GEMINI_API_KEY" in response.json()["detail"]
+
+
+def test_gemini_provider_requests_expected_dimensions(monkeypatch) -> None:
+    captured_payload: dict = {}
+
+    def fake_post_json(
+        url: str,
+        payload: dict,
+        headers: dict[str, str],
+        timeout_seconds: float,
+    ) -> dict:
+        captured_payload.update(payload)
+
+        return {"embeddings": [{"values": [0.25] * 16}]}
+
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+    monkeypatch.setenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
+    monkeypatch.setattr(embedding_module, "post_json", fake_post_json)
+
+    vectors = gemini_embed(["messy honest travel story"], 16)
+    request = captured_payload["requests"][0]
+
+    assert len(vectors[0]) == 16
+    assert request["outputDimensionality"] == 16
+    assert request["taskType"] == "RETRIEVAL_DOCUMENT"
+
+
+def test_provider_vectors_must_match_requested_dimensions() -> None:
+    with pytest.raises(HTTPException) as exception:
+        validate_provider_vectors("Test", [[0.1, 0.2, 0.3]], 1, 2)
+
+    assert "expected 2" in str(exception.value)
+
+
+def test_cohere_provider_requires_api_key(monkeypatch) -> None:
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "cohere")
+    monkeypatch.delenv("COHERE_API_KEY", raising=False)
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/embed",
+        json={"texts": ["messy honest travel story"], "dimensions": 16},
+    )
+
+    assert response.status_code == 503
+    assert "COHERE_API_KEY" in response.json()["detail"]

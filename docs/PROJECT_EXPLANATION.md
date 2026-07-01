@@ -227,11 +227,24 @@ In production, the inside of the embedding service can be replaced with:
 - sentence-transformers
 - OpenAI embeddings
 - Gemini embeddings
-- Voyage embeddings
 - Cohere embeddings
+- Hugging Face feature-extraction models
+- Voyage embeddings
 
 The Laravel API does not need to change if the `/v1/embed` contract stays the
 same.
+
+For this project, the practical no/low-cost options are:
+
+| Option | What To Set | Why It Helps |
+|--------|-------------|--------------|
+| Keep `hash` | `EMBEDDING_PROVIDER=hash` | No key needed; best for reviewer setup |
+| Use Gemini | `EMBEDDING_PROVIDER=gemini` and `GEMINI_API_KEY=...` | Free-tier style testing with real embeddings |
+| Use Cohere | `EMBEDDING_PROVIDER=cohere` and `COHERE_API_KEY=...` | Trial/free testing; the light model matches the 384-dim database setup |
+| Use OpenAI | `EMBEDDING_PROVIDER=openai` and `OPENAI_API_KEY=...` | Production hosted embedding option |
+
+Groq is not used here because it is mainly useful for fast LLM/chat inference.
+This feature needs embedding vectors, not chat completions.
 
 ## 10. Why Laravel Sanctum?
 
@@ -371,7 +384,7 @@ without external paid services:
 - Rate limits for login, read APIs, and write APIs.
 - Request ID middleware for traceable API logs.
 - A protected `/api/metrics` endpoint for operational counters.
-- Optional OpenAI-compatible embedding provider support.
+- Optional OpenAI, Gemini, and Cohere embedding provider support.
 - Hash embeddings remain the default so reviewers do not need API keys.
 
 This makes the code closer to a production architecture while keeping local
