@@ -11,9 +11,9 @@ storage/framework/cache/*
 storage/framework/sessions/*
 storage/framework/testing/*
 storage/framework/views/*
-embedding_service/.pytest_cache
-embedding_service/**/__pycache__
-embedding_service/**/*.egg-info
+embedding/.pytest_cache
+embedding/**/__pycache__
+embedding/**/*.egg-info
 *.pyc
 *.pyo
 .pytest_cache

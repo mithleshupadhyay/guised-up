@@ -55,7 +55,7 @@ test-api: ensure-env
 	docker compose --env-file $(ENV_FILE) -f $(DOCKER_COMPOSE_FILE) -p $(DOCKER_PROJECT) exec api php artisan test
 
 test-embedding:
-	cd embedding_service && python -m pytest -q
+	cd embedding && python -m pytest -q
 
 mobile-install:
 	cd mobile && npm install

@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from guised_up_embeddings.main import app, hash_embed
+from embedding.main import app, hash_embed
 
 
 def test_hash_embed_is_deterministic_and_normalized() -> None:

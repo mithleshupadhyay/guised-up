@@ -11,4 +11,4 @@ RUN pip install --no-cache-dir .
 
 EXPOSE 8080
 
-CMD ["uvicorn", "guised_up_embeddings.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "embedding.main:app", "--host", "0.0.0.0", "--port", "8080"]

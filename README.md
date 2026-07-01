@@ -11,7 +11,7 @@ SQL challenge answers.
 |---|---|
 | Technical solution document | `docs/TSD.md` |
 | Laravel API | `app/`, `routes/api.php`, `database/migrations/` |
-| Python embedding service | `embedding_service/` |
+| Python embedding service | `embedding/` |
 | React Native screen | `mobile/src/screens/FeedScreen.tsx` |
 | SQL challenge | `sql/queries.sql` |
 | Local runtime | `docker-compose.yml`, `Makefile`, `.env.example` |
@@ -152,7 +152,7 @@ Host PHP is not required if Docker is available:
 
 ```bash
 docker compose exec api php artisan test
-cd embedding_service && python -m pytest -q
+cd embedding && python -m pytest -q
 ```
 
 The Laravel tests cover ranking, authenticity scoring, and deterministic

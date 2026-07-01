@@ -17,7 +17,7 @@ services:
 
   embedding:
     build:
-      context: ./embedding_service
+      context: ./embedding
     environment:
       EMBEDDING_MODEL_NAME: ${FEED_EMBEDDING_MODEL:-hash-embedding-v1}
       EMBEDDING_DIMENSIONS: ${FEED_EMBEDDING_DIMENSIONS:-384}
