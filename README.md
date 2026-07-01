@@ -3,6 +3,7 @@
 [![PHP 8.2+](https://img.shields.io/badge/php-8.2+-777bb4.svg)](https://www.php.net/)
 [![Laravel 11](https://img.shields.io/badge/laravel-11-ff2d20.svg)](https://laravel.com/)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-3776ab.svg)](https://www.python.org/)
+[![Poetry](https://img.shields.io/badge/poetry-dependency%20management-blue.svg)](https://python-poetry.org/)
 [![Expo](https://img.shields.io/badge/expo-react%20native-000020.svg)](https://expo.dev/)
 [![License: Proprietary](https://img.shields.io/badge/license-proprietary-red.svg)](composer.json)
 
@@ -21,7 +22,7 @@ and a technical solution document.
 
 - Docker and Docker Compose
 - Node.js 20+ and npm
-- Python 3.12+ if running embedding tests outside Docker
+- Python 3.12+ and Poetry if running embedding tests outside Docker
 
 Host PHP is not required when using Docker.
 
@@ -381,6 +382,7 @@ make docker-up-build
 make docker-ps
 make migrate
 make seed
+make embedding-install
 make test
 make mobile-install
 make mobile-start
@@ -393,7 +395,7 @@ make mobile-start
 docker compose exec -T api php artisan test
 
 # Python embedding service tests
-(cd embedding && ../.venv/bin/pytest -q tests)
+(cd embedding && poetry install && poetry run pytest -q)
 
 # Mobile TypeScript check
 (cd mobile && npm run typecheck)
@@ -440,7 +442,7 @@ Expo Web export: passing
 docker compose ps
 curl http://localhost:8000/api
 docker compose exec -T api php artisan test
-(cd embedding && ../.venv/bin/pytest -q tests)
+(cd embedding && poetry install && poetry run pytest -q)
 (cd mobile && npm run typecheck)
 ```
 

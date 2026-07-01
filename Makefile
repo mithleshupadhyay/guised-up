@@ -5,7 +5,7 @@ DOCKER_COMPOSE_FILE ?= docker-compose.yml
 DOCKER_PROJECT ?= guised-up-assessment
 ENV_FILE ?= .env
 
-.PHONY: help ensure-env docker-build docker-up docker-up-build docker-down docker-logs docker-ps docker-exec migrate seed test test-api test-embedding mobile-install mobile-start
+.PHONY: help ensure-env docker-build docker-up docker-up-build docker-down docker-logs docker-ps docker-exec migrate seed test test-api embedding-install test-embedding mobile-install mobile-start
 
 help:
 	@printf '%s\n' "Available targets:"
@@ -13,6 +13,7 @@ help:
 	@printf '%s\n' "  make migrate          Run Laravel migrations"
 	@printf '%s\n' "  make seed             Seed test users and sample posts"
 	@printf '%s\n' "  make test             Run API and embedding service tests"
+	@printf '%s\n' "  make embedding-install Install Python embedding dependencies with Poetry"
 	@printf '%s\n' "  make mobile-install   Install React Native dependencies"
 	@printf '%s\n' "  make mobile-start     Start Expo"
 
@@ -54,8 +55,11 @@ test: test-api test-embedding
 test-api: ensure-env
 	docker compose --env-file $(ENV_FILE) -f $(DOCKER_COMPOSE_FILE) -p $(DOCKER_PROJECT) exec api php artisan test
 
-test-embedding:
-	cd embedding && python -m pytest -q
+embedding-install:
+	cd embedding && poetry install --no-interaction
+
+test-embedding: embedding-install
+	cd embedding && poetry run pytest -q
 
 mobile-install:
 	cd mobile && npm install
