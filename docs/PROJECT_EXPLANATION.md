@@ -408,20 +408,3 @@ Next production steps:
 This project builds a social feed that ranks posts by authenticity,
 relationships, semantic relevance, and freshness instead of popularity.
 ```
-
-## 21. Short Interview Explanation
-
-You can explain it like this:
-
-```text
-I built a full-stack Real Connections Feed for Guised Up. The main business
-problem is that normal social feeds reward popularity and polished content,
-while Guised Up wants users to see more authentic posts from people they care
-about. I solved this with a Laravel API, PostgreSQL with pgvector, a Python
-embedding service, and an Expo React Native feed screen. The feed ranks posts
-using relationship depth, authenticity, semantic similarity, and time decay,
-not likes or comment volume. The project is Dockerized, uses Sanctum auth, has
-service-to-service protection for embeddings, queues embedding generation,
-caches feed features, exposes basic metrics, and includes tests and SQL answers
-for review.
-```
