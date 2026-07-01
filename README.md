@@ -415,6 +415,7 @@ Expo Web export: passing
 
 ## Documentation
 
+- `docs/PROJECT_EXPLANATION.md` - simple business and architecture explanation
 - `docs/TSD.md` - technical solution document and architecture decisions
 - `sql/queries.sql` - raw SQL challenge answers
 - `routes/api.php` - API route map

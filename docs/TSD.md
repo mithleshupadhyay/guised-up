@@ -8,11 +8,12 @@ real relationships instead of engagement farming.
 
 The implementation target for this submission is:
 
-- React Native feed screen
+- Expo React Native feed screen with browser preview
 - Laravel API with Sanctum token auth
 - PostgreSQL for relational data
 - pgvector as the vector database
-- Python embedding service with deterministic local embeddings
+- Python FastAPI embedding service with deterministic local embeddings
+- Docker Compose local runtime
 - Raw SQL queries for operational analysis
 
 Important product rule:
@@ -23,6 +24,13 @@ The feed must not rank posts by likes, shares, or comment volume.
 
 Engagement can be logged because it helps understand relationship depth, but it
 must not become a popularity score.
+
+Reviewer document map:
+
+- `README.md` explains setup, commands, endpoints, and troubleshooting.
+- `docs/PROJECT_EXPLANATION.md` explains the business problem in plain English.
+- `docs/TSD.md` is the technical design and trade-off document.
+- `sql/queries.sql` contains the raw SQL challenge answers.
 
 ## Architecture
 
@@ -49,11 +57,32 @@ flowchart TB
 Local runtime:
 
 ```text
-mobile app
--> Laravel API
--> PostgreSQL + pgvector
--> Python embedding service
+Expo React Native / Web
+-> Laravel API on http://localhost:8000/api
+-> PostgreSQL + pgvector on postgres:5432
+-> Python embedding service on http://embedding:8080
 ```
+
+Local debugging ports:
+
+| Service | URL |
+|---|---|
+| Laravel API index | `http://localhost:8000/api` |
+| Laravel root redirect | `http://localhost:8000 -> /api` |
+| Embedding service docs | `http://localhost:18080/docs` |
+| Expo Web | `http://localhost:8081` or the port Expo prints |
+
+Repository implementation map:
+
+| Area | Path |
+|---|---|
+| API routes | `routes/api.php`, `routes/web.php` |
+| Feed ranking | `app/Services/Feed/` |
+| Embedding client and vector formatting | `app/Services/Embeddings/` |
+| Python embedding service | `embedding/src/embedding/main.py` |
+| Embedding Poetry project | `embedding/pyproject.toml`, `embedding/poetry.lock` |
+| React Native screen | `mobile/src/screens/FeedScreen.tsx` |
+| SQL answers | `sql/queries.sql` |
 
 Production direction:
 
@@ -172,7 +201,7 @@ Production trade-off:
 
 ## Embeddings
 
-The API calls a Python embedding service:
+The API calls a Python embedding service located at `embedding/`.
 
 ```text
 POST /v1/embed
@@ -180,6 +209,18 @@ POST /v1/embed
   "texts": ["funny travel stories from last week"],
   "dimensions": 384
 }
+```
+
+Local Docker URL:
+
+```text
+http://embedding:8080/v1/embed
+```
+
+Local debug docs:
+
+```text
+http://localhost:18080/docs
 ```
 
 The service currently uses deterministic hash embeddings. This is intentional
@@ -190,6 +231,17 @@ The embedding service is internal to the backend. Mobile clients never call it
 directly. Laravel sends `X-Embedding-Service-Token` for service-to-service
 authentication, while end-user authentication stays on the Laravel API via
 Sanctum.
+
+Local Python development uses Poetry:
+
+```bash
+cd embedding
+poetry install
+poetry run pytest -q
+```
+
+Docker still installs the service as a package with `pip install .`, so the
+container runtime does not depend on a host Poetry environment.
 
 Production swap:
 
@@ -206,6 +258,27 @@ All protected endpoints use:
 
 ```text
 Authorization: Bearer <sanctum-token>
+```
+
+### GET /api
+
+Public API index used by reviewers to confirm the backend is up.
+
+Response:
+
+```json
+{
+  "name": "Guised Up Feed",
+  "status": "ok",
+  "auth": "Use POST /api/auth/login to create a Sanctum Bearer token.",
+  "endpoints": [
+    "POST /api/auth/login",
+    "GET /api/feed",
+    "GET /api/search?q=funny%20travel%20stories",
+    "POST /api/posts",
+    "POST /api/interactions"
+  ]
+}
 ```
 
 ### POST /api/auth/login
@@ -226,6 +299,20 @@ Response:
   "token": "plain-text-sanctum-token",
   "token_type": "Bearer",
   "user": {
+    "id": 1,
+    "name": "Mithlesh Upadhyay",
+    "username": "mithlesh"
+  }
+}
+```
+
+### GET /api/me
+
+Response:
+
+```json
+{
+  "data": {
     "id": 1,
     "name": "Mithlesh Upadhyay",
     "username": "mithlesh"
@@ -417,6 +504,41 @@ Laravel Sanctum is used for token-based API access.
   token for local service-to-service authentication.
 - In production, token issuance should be rate-limited and protected with
   device/session metadata.
+
+## Reviewer Validation
+
+Backend stack:
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+docker compose ps
+curl http://localhost:8000/api
+```
+
+Create a demo token:
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"mithlesh@example.com","password":"password"}' \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+```
+
+Run checks:
+
+```bash
+docker compose exec -T api php artisan test
+(cd embedding && poetry install && poetry run pytest -q)
+(cd mobile && npm run typecheck)
+```
+
+Run browser preview:
+
+```bash
+cd mobile
+EXPO_PUBLIC_API_URL=http://localhost:8000/api EXPO_PUBLIC_AUTH_TOKEN="$TOKEN" npm run web
+```
 
 ## Trade-Offs And Assumptions
 
