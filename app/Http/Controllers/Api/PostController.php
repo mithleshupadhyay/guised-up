@@ -5,18 +5,17 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StorePostRequest;
 use App\Http\Resources\PostResource;
+use App\Jobs\GeneratePostEmbedding;
 use App\Models\Post;
-use App\Services\Embeddings\EmbeddingClient;
-use App\Services\Embeddings\VectorFormatter;
 use App\Services\Feed\AuthenticityScorer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class PostController extends Controller
 {
     public function __construct(
         private readonly AuthenticityScorer $authenticityScorer,
-        private readonly EmbeddingClient $embeddingClient,
     ) {
     }
 
@@ -27,9 +26,8 @@ class PostController extends Controller
             text: $validated['text'],
             imageUrl: $validated['image_url'] ?? null,
         );
-        $embedding = $this->embeddingClient->embed($validated['text']);
 
-        $post = DB::transaction(function () use ($request, $validated, $scores, $embedding): Post {
+        $post = DB::transaction(function () use ($request, $validated, $scores): Post {
             $post = Post::query()->create([
                 'author_id' => $request->user()->id,
                 'body' => $validated['text'],
@@ -39,18 +37,22 @@ class PostController extends Controller
                 'authenticity_score' => $scores['authenticity_score'],
                 'metadata' => [
                     'authenticity_version' => 1,
+                    'embedding_status' => 'queued',
                 ],
             ]);
 
-            $post->embedding()->create([
-                'embedding' => VectorFormatter::toPgvector($embedding),
-                'dimensions' => count($embedding),
-                'model' => (string) config('feed.embedding_model', 'hash-embedding-v1'),
-                'version' => 1,
-            ]);
-
-            return $post->load(['author', 'embedding']);
+            return $post;
         });
+
+        GeneratePostEmbedding::dispatch($post->id);
+        $post->load(['author', 'embedding']);
+
+        Log::info('[PostController] Post created', [
+            'request_id' => $request->attributes->get('request_id'),
+            'post_id' => $post->id,
+            'author_id' => $request->user()->id,
+            'authenticity_score' => $scores['authenticity_score'],
+        ]);
 
         return (new PostResource($post))
             ->response()

@@ -8,6 +8,7 @@ use App\Models\Post;
 use App\Services\Embeddings\EmbeddingClient;
 use App\Services\Embeddings\VectorFormatter;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class SearchController extends Controller
 {
@@ -32,6 +33,13 @@ class SearchController extends Controller
             ->orderByRaw('post_embeddings.embedding <=> CAST(? AS vector)', [$queryVector])
             ->limit(10)
             ->get();
+
+        Log::info('[SearchController] Semantic search completed', [
+            'request_id' => $request->attributes->get('request_id'),
+            'viewer_id' => $request->user()?->id,
+            'query_length' => strlen($validated['q']),
+            'result_count' => $posts->count(),
+        ]);
 
         return PostResource::collection($posts);
     }

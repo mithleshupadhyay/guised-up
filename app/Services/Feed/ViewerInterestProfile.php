@@ -6,10 +6,24 @@ use App\Models\Interaction;
 use App\Models\User;
 use App\Services\Embeddings\VectorFormatter;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Cache;
 
 final class ViewerInterestProfile
 {
     public function build(User $viewer, CarbonImmutable $now): array
+    {
+        if (! (bool) config('feed.cache_profiles', true)) {
+            return $this->buildFresh($viewer, $now);
+        }
+
+        return Cache::remember(
+            FeedCacheKeys::viewerInterest($viewer->id),
+            (int) config('feed.viewer_interest_cache_seconds', 300),
+            fn (): array => $this->buildFresh($viewer, $now),
+        );
+    }
+
+    private function buildFresh(User $viewer, CarbonImmutable $now): array
     {
         $interactions = Interaction::query()
             ->where('actor_id', $viewer->id)

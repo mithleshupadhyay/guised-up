@@ -14,6 +14,10 @@ The implementation target for this submission is:
 - pgvector as the vector database
 - Python FastAPI embedding service with deterministic local embeddings
 - Docker Compose local runtime
+- Queue-backed embedding generation
+- Cached feed profile features
+- Rate-limited API routes
+- Request IDs, structured logs, and operational metrics
 - Raw SQL queries for operational analysis
 
 Important product rule:
@@ -69,6 +73,7 @@ Local debugging ports:
 |---|---|
 | Laravel API index | `http://localhost:8000/api` |
 | Laravel root redirect | `http://localhost:8000 -> /api` |
+| Laravel metrics | `http://localhost:8000/api/metrics` |
 | Embedding service docs | `http://localhost:18080/docs` |
 | Expo Web | `http://localhost:8081` or the port Expo prints |
 
@@ -79,6 +84,7 @@ Repository implementation map:
 | API routes | `routes/api.php`, `routes/web.php` |
 | Feed ranking | `app/Services/Feed/` |
 | Embedding client and vector formatting | `app/Services/Embeddings/` |
+| Queue job for post embeddings | `app/Jobs/GeneratePostEmbedding.php` |
 | Python embedding service | `embedding/src/embedding/main.py` |
 | Embedding Poetry project | `embedding/pyproject.toml`, `embedding/poetry.lock` |
 | React Native screen | `mobile/src/screens/FeedScreen.tsx` |
@@ -227,6 +233,18 @@ The service currently uses deterministic hash embeddings. This is intentional
 for the assignment because it makes the repo run without API credits and keeps
 tests stable.
 
+For production-like provider embeddings, the service can be switched to an
+OpenAI-compatible endpoint:
+
+```env
+EMBEDDING_PROVIDER=openai
+OPENAI_API_KEY=...
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+```
+
+The default remains `EMBEDDING_PROVIDER=hash` so review does not require paid
+credentials.
+
 The embedding service is internal to the backend. Mobile clients never call it
 directly. Laravel sends `X-Embedding-Service-Token` for service-to-service
 authentication, while end-user authentication stays on the Laravel API via
@@ -350,6 +368,14 @@ Response:
 }
 ```
 
+Post creation queues `GeneratePostEmbedding`. With `QUEUE_CONNECTION=sync`, this
+runs immediately for local review. With `QUEUE_CONNECTION=database`, a separate
+worker can process embeddings asynchronously:
+
+```bash
+docker compose exec api php artisan queue:work --queue=embeddings,default
+```
+
 ### GET /api/feed?page=1
 
 Response:
@@ -373,6 +399,31 @@ Response:
     "per_page": 20,
     "total": 143,
     "last_page": 8
+  }
+}
+```
+
+### GET /api/metrics
+
+Protected operational endpoint for reviewer-visible counters.
+
+Response:
+
+```json
+{
+  "generated_at": "2026-07-01T03:30:00.000000Z",
+  "feed": {
+    "users": 3,
+    "posts": 12,
+    "post_embeddings": 12,
+    "posts_waiting_for_embedding": 0,
+    "interactions": 40
+  },
+  "runtime": {
+    "queue_connection": "sync",
+    "cache_store": "database",
+    "embedding_model": "hash-embedding-v1",
+    "embedding_dimensions": 384
   }
 }
 ```
@@ -432,11 +483,12 @@ Plain English:
    views.
 4. Build a viewer interest vector from posts the viewer interacted with
    recently.
-5. Compare each candidate post vector with the viewer interest vector.
-6. Apply time decay so very old content falls down unless relationship and
+5. Cache the viewer interest vector and relationship scores for a short TTL.
+6. Compare each candidate post vector with the viewer interest vector.
+7. Apply time decay so very old content falls down unless relationship and
    semantic relevance are strong.
-7. Combine the signals with fixed weights.
-8. Return a paginated feed sorted by this score.
+8. Combine the signals with fixed weights.
+9. Return a paginated feed sorted by this score.
 
 Signal weights:
 
@@ -505,6 +557,17 @@ Laravel Sanctum is used for token-based API access.
 - In production, token issuance should be rate-limited and protected with
   device/session metadata.
 
+Rate limits are configured per route family:
+
+| Limiter | Default |
+|---|---:|
+| Login | 10 requests/minute per IP |
+| Read APIs | 120 requests/minute per user |
+| Write APIs | 30 requests/minute per user |
+
+Every API response includes `X-Request-ID`, and request start/completion logs
+include the same ID so a reviewer can trace a request through the API logs.
+
 ## Reviewer Validation
 
 Backend stack:
@@ -533,6 +596,13 @@ docker compose exec -T api php artisan test
 (cd mobile && npm run typecheck)
 ```
 
+Check metrics:
+
+```bash
+curl -s http://localhost:8000/api/metrics \
+  -H "Authorization: Bearer $TOKEN"
+```
+
 Run browser preview:
 
 ```bash
@@ -543,9 +613,13 @@ EXPO_PUBLIC_API_URL=http://localhost:8000/api EXPO_PUBLIC_AUTH_TOKEN="$TOKEN" np
 ## Trade-Offs And Assumptions
 
 - Hash embeddings are used for reproducibility. The embedding service contract
-  is intentionally model-agnostic so this can be swapped quickly.
-- Feed ranking is synchronous for the take-home. In production, viewer interest
-  vectors and relationship aggregates should be materialized asynchronously.
+  is intentionally model-agnostic so this can be switched to an OpenAI-compatible
+  provider by environment variable.
+- Post embedding generation runs through Laravel jobs. The local default queue
+  is `sync` for reviewer simplicity; production should run database/Redis queue
+  workers separately.
+- Viewer interest vectors and relationship aggregates are cached with short TTLs
+  to reduce repeat feed-request cost.
 - Authenticity scoring is heuristic because image files are not uploaded in the
   API, only image URLs. A production version would use image metadata and a
   lightweight model to detect filters, beauty effects, screenshots, and stock

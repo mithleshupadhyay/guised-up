@@ -152,6 +152,7 @@ curl -s -X POST http://localhost:8000/api/interactions \
 | `GET` | `/api/search?q=query` | Yes | Return semantic vector matches |
 | `POST` | `/api/posts` | Yes | Create post and store vector embedding |
 | `POST` | `/api/interactions` | Yes | Log view, reply, or reaction |
+| `GET` | `/api/metrics` | Yes | Return operational counters |
 
 ## Seeded Users
 
@@ -169,6 +170,11 @@ curl -s -X POST http://localhost:8000/api/interactions \
 - Internal FastAPI embedding service
 - Service-to-service token protection for embeddings
 - Deterministic local embeddings for reproducible review
+- Optional OpenAI-compatible embedding provider for production
+- Queue-backed post embedding generation
+- Cached viewer interest and relationship features
+- Rate-limited auth, read, and write routes
+- Request ID logging and protected operational metrics
 - Semantic search over post vectors
 - Relationship-depth scoring from real interactions
 - Authenticity scoring for personal, less promotional content
@@ -227,8 +233,13 @@ EXPO_PUBLIC_API_URL=http://localhost:8000/api
 | `DB_HOST` | `postgres` | Docker service name used by Laravel |
 | `FEED_EMBEDDING_SERVICE_URL` | `http://embedding:8080` | Internal Docker URL for embeddings |
 | `FEED_EMBEDDING_SERVICE_TOKEN` | `local-embedding-service-token` | Shared backend service token |
+| `FEED_EMBEDDING_QUEUE` | `embeddings` | Queue name for post embedding jobs |
+| `FEED_CACHE_PROFILES` | `true` | Cache viewer feed features |
+| `FEED_REQUEST_LOGGING` | `true` | Log request start/completion with request IDs |
 | `FEED_EMBEDDING_DIMENSIONS` | `384` | Vector size stored in pgvector |
 | `FEED_EMBEDDING_MODEL` | `hash-embedding-v1` | Current embedding model name |
+| `EMBEDDING_PROVIDER` | `hash` | `hash` locally, `openai` when using provider embeddings |
+| `OPENAI_API_KEY` | empty | Required only when `EMBEDDING_PROVIDER=openai` |
 | `EXPO_PUBLIC_API_URL` | `http://localhost:8000/api` | API URL used by Expo |
 | `EXPO_PUBLIC_AUTH_TOKEN` | empty | Optional token injected into Expo |
 
