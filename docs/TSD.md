@@ -34,8 +34,10 @@ Reviewer document map:
 - `README.md` explains setup, commands, endpoints, and troubleshooting.
 - `docs/PROJECT_EXPLANATION.md` explains the business problem in plain English.
 - `docs/TSD.md` is the technical design and trade-off document.
-- `docs/ENGINEERING_REVIEW.md` is the senior-review/video walkthrough
-  note with trade-offs, failure modes, and production hardening plan.
+- `docs/ENGINEERING_REVIEW.md` is the senior-review note with trade-offs,
+  failure modes, and production hardening plan.
+- `docs/WALKTHROUGH.md` is the reviewer runbook with fresh rebuild,
+  verification, and UI commands.
 - `sql/queries.sql` contains the raw SQL challenge answers.
 
 ## Architecture

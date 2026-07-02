@@ -20,7 +20,8 @@ Reviewer docs:
 
 - `docs/TSD.md` - technical solution document
 - `docs/PROJECT_EXPLANATION.md` - plain-English business and architecture explanation
-- `docs/ENGINEERING_REVIEWs.md` - senior-review notes, trade-offs, failure modes, and video outline
+- `docs/ENGINEERING_REVIEW.md` - senior-review notes, trade-offs, failure modes, and production hardening
+- `docs/WALKTHROUGH.md` - reviewer runbook with fresh rebuild, verification, and UI commands
 
 ## Quick Start
 
@@ -467,8 +468,8 @@ docker compose exec -T api php artisan test
 Expected current status:
 
 ```text
-Laravel: 4 tests passing
-Embedding: 3 tests passing
+Laravel: 5 tests passing
+Embedding: 10 tests passing
 Mobile: typecheck passing
 Expo Web export: passing
 ```
@@ -477,6 +478,8 @@ Expo Web export: passing
 
 - `docs/PROJECT_EXPLANATION.md` - simple business and architecture explanation
 - `docs/TSD.md` - technical solution document and architecture decisions
+- `docs/ENGINEERING_REVIEW.md` - senior engineering review notes and trade-offs
+- `docs/WALKTHROUGH.md` - reviewer runbook with fresh rebuild and verification commands
 - `sql/queries.sql` - raw SQL challenge answers
 - `routes/api.php` - API route map
 - `database/migrations/` - schema and pgvector setup

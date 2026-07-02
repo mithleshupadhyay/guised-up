@@ -352,67 +352,29 @@ If this were moving into production, I would prioritize:
 9. Admin tools to inspect why a post ranked where it did.
 10. CI that runs Laravel, Python, and mobile checks on every pull request.
 
-## 12. Video Walkthrough Outline
+## 12. Reviewer Verification Checklist
 
-This is the recording flow I would use:
+For the full fresh rebuild command list, see `docs/WALKTHROUGH.md`.
 
-1. State the product problem.
+Recommended review order:
 
-```text
-This is a social feed that intentionally avoids popularity ranking. The goal is
-to surface authentic posts from real relationships.
-```
+1. Read the product goal in `docs/PROJECT_EXPLANATION.md`.
+2. Review the architecture and API contracts in `docs/TSD.md`.
+3. Build the Docker stack from a clean state.
+4. Verify Laravel, PostgreSQL, pgvector, and the embedding service.
+5. Exercise login, feed, search, post creation, interaction logging, and metrics.
+6. Run Laravel tests, Python embedding tests, and mobile typecheck.
+7. Open Expo Web and verify the feed UI against the live API.
+8. Review the trade-offs and production failure modes in this document.
 
-2. Show the architecture.
+Core implementation checks:
 
-```text
-React Native calls Laravel. Laravel uses PostgreSQL and pgvector. Embeddings are
-handled by a separate Python service.
-```
-
-3. Show the running app.
-
-```text
-Open Expo Web, show feed, search, and reaction.
-```
-
-4. Show backend validation.
-
-```text
-docker compose ps
-curl http://localhost:8000/api
-curl http://localhost:18080/health
-```
-
-5. Explain the ranking formula.
-
-```text
-Relationship, authenticity, semantic similarity, and recency. No popularity
-count ranking.
-```
-
-6. Explain one real trade-off.
-
-```text
-I used pgvector for reproducible local review. At much larger scale I would
-measure pgvector first, then consider a dedicated vector database if recall or
-latency required it.
-```
-
-7. Explain one failure mode.
-
-```text
-Authenticity scoring is heuristic and can be gamed. In production I would add a
-labeled evaluation set, confidence thresholds, model-assisted scoring, and human
-review for edge cases.
-```
-
-8. End with verification.
-
-```text
-Laravel tests pass, embedding tests pass, mobile typecheck passes, and Gemini
-provider mode was validated with 384-dimensional vectors.
-```
+- The feed ranks by relationship, authenticity, semantic similarity, and recency.
+- Raw likes, shares, and comment volume are not ranking inputs.
+- New posts receive an authenticity score and stored pgvector embedding.
+- The embedding service validates dimensions and supports provider fallbacks.
+- The project can run without paid API keys, while still supporting Gemini,
+  OpenAI, and Cohere through environment variables.
 
 ## 13. Final Engineering Position
 
