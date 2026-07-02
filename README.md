@@ -14,7 +14,13 @@ or popularity.
 
 The repository includes a Laravel API, PostgreSQL with pgvector, an internal
 Python embedding service, an Expo React Native feed screen, tests, SQL answers,
-and a technical solution document.
+and technical/reviewer documentation.
+
+Reviewer docs:
+
+- `docs/TSD.md` - technical solution document
+- `docs/PROJECT_EXPLANATION.md` - plain-English business and architecture explanation
+- `docs/ENGINEERING_REVIEWs.md` - senior-review notes, trade-offs, failure modes, and video outline
 
 ## Quick Start
 
